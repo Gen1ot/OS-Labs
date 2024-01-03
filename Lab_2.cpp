@@ -1,178 +1,132 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <iostream>
+#include <vector>
+#include <cstring>
+#include <cstdlib>
+#include <cerrno>
+#include <csignal>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <arpa/inet.h>
-#include <signal.h>
-#include <sys/select.h>
-#include <errno.h>
 
-#define MAX_CLIENTS 1
+using namespace std;
 
-volatile sig_atomic_t wasSigHup = 0;
+struct Client {
+    int connfd;
+    sockaddr_in addr;
+};
 
-void sigHupHandler(int r) {
-    wasSigHup = 1;
+volatile sig_atomic_t signalReceived = 0;
+
+void handleSignal(int sig) {
+    signalReceived = 1;
 }
 
-int main(int argc, char *argv[]) {
-
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <port>\n", argv[0]);
-        return 1;
-    }
-
-    int server_fd, client_fd;
-    struct sockaddr_in server_addr, client_addrs[MAX_CLIENTS];
-    socklen_t server_addr_len = sizeof(server_addr);
-    int clients[MAX_CLIENTS] = {0};  
-    int PORT = atoi(argv[1]);
-
-    // Создание сокета
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("Socket creation failed");
-        return 1;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
-
-    // Привязка сокета к адресу и порту
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Bind failed");
-        close(server_fd);
-        return 1;
-    }
-
-    // Прослушивание порта для входящих соединений
-    if (listen(server_fd, MAX_CLIENTS) == -1) {
-        perror("Listen failed");
-        close(server_fd);
-        return 1;
-    }
-
-    // Регистрация обработчика сигнала
+void setupSignalHandler(sigset_t *originalMask) {
     struct sigaction sa;
-    sigaction(SIGHUP, NULL, &sa);
-    sa.sa_handler = sigHupHandler;
+    sigaction(SIGHUP, nullptr, &sa);
+    sa.sa_handler = handleSignal;
     sa.sa_flags |= SA_RESTART;
-    sigaction(SIGHUP, &sa, NULL);
+    sigaction(SIGHUP, &sa, nullptr);
 
-    // Блокировка сигнала
-    sigset_t blockedMask, origMask;
+    sigset_t blockedMask;
     sigemptyset(&blockedMask);
     sigaddset(&blockedMask, SIGHUP);
-    if (sigprocmask(SIG_BLOCK, &blockedMask, &origMask) == -1) {
-        perror("sigprocmask error");
-        return 1;
+    sigprocmask(SIG_BLOCK, &blockedMask, originalMask);
+}
+
+int createServer(int port) {
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd == -1) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    printf("Server listening on port %d\n", PORT);
-    struct timespec timeout = {5, 0}; 
+    sockaddr_in servaddr{};
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(port);
 
-    while (wasSigHup) {
-        fd_set fds; 
-        FD_ZERO(&fds); 
-        FD_SET(server_fd, &fds);
-        int maxFd = server_fd; 
-        
-        for (int i = 0; i < MAX_CLIENTS; i++) { 
-            if (clients[i] > 0) { 
-                FD_SET(clients[i], &fds); 
-                if (clients[i] > maxFd) { 
-                    maxFd = clients[i]; 
-                }   
+    if (bind(sockfd, reinterpret_cast<sockaddr*>(&servaddr), sizeof(servaddr)) != 0) {
+        perror("Socket bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(sockfd, 5) != 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    return sockfd;
+}
+
+int main() {
+    int sockfd = createServer(5005);
+    cout << "Server is listening...\n";
+
+    vector<Client> clients;
+    char buffer[1024] = {0};
+
+    sigset_t origSigMask;
+    setupSignalHandler(&origSigMask);
+
+    while (true) {
+        if (signalReceived) {
+            signalReceived = 0;
+            cout << "Connected Clients: ";
+            for (const auto &client : clients) {
+                cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] ";
+            }
+            cout << "\n";
+        }
+
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(sockfd, &fds);
+        int maxFd = sockfd;
+
+        for (const auto &client : clients) {
+            FD_SET(client.connfd, &fds);
+            if (client.connfd > maxFd) {
+                maxFd = client.connfd;
             }
         }
 
-        int pselect_flag = pselect(maxFd + 1, &fds, NULL, NULL, &timeout, &origMask);
+        if (pselect(maxFd + 1, &fds, nullptr, nullptr, nullptr, &origSigMask) < 0 && errno != EINTR) {
+            perror("pselect failed");
+            return EXIT_FAILURE;
+        }
 
-        if (pselect_flag == -1) {
-            if (errno == EINTR){
-                if (wasSigHup) {
-                    printf("Received SIGHUP signal\n");
-                    wasSigHup = 0;
+        if (FD_ISSET(sockfd, &fds) && clients.size() < 3) {
+            clients.emplace_back();
+            auto &client = clients.back();
+            socklen_t len = sizeof(client.addr);
+            client.connfd = accept(sockfd, reinterpret_cast<sockaddr*>(&client.addr), &len);
+            if (client.connfd >= 0) {
+                cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] Connected!\n";
+            } else {
+                perror("Accept error");
+                clients.pop_back();
+            }
+        }
+
+        for (auto it = clients.begin(); it != clients.end(); ) {
+            auto &client = *it;
+            if (FD_ISSET(client.connfd, &fds)) {
+                int readLen = read(client.connfd, buffer, sizeof(buffer) - 1);
+                if (readLen > 0) {
+                    buffer[readLen - 1] = 0;
+                    cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] " << buffer << "\n";
+                } else {
+                    close(client.connfd);
+                    cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] Connection closed\n";
+                    it = clients.erase(it);
                     continue;
                 }
-            }else {
-                perror("pselect error");
-                break;
-            } 
-        } else if (pselect_flag == 0) {
-            printf("No activity on sockets\n");
-        } else {
-            // Обработка произошедшего события
-            if (FD_ISSET(server_fd, &fds)) {
-                int new_client_index = -1; 
-                for (int i = 0; i < MAX_CLIENTS; i++) { 
-                    if (clients[i] == 0) { 
-                        new_client_index = i;
-                        break;
-                    }
-                }
-
-                if (new_client_index != -1) { 
-                    if ((client_fd = accept(server_fd, (struct sockaddr *)&client_addrs[new_client_index], &server_addr_len)) == -1) {
-                        perror("Accept failed"); 
-                        return 1;
-                    } else {
-                        char client_ip[INET_ADDRSTRLEN];
-                        inet_ntop(AF_INET, &client_addrs[new_client_index].sin_addr, client_ip, sizeof(client_ip));
-                        int client_port = ntohs(client_addrs[new_client_index].sin_port);
-                        
-                        clients[new_client_index] = client_fd;
-                        printf("New connection accepted from %s:%d\n", client_ip, client_port);
-                    }
-                } else {
-                    // Если все слоты заняты, отклоняем новое подключение
-                    struct sockaddr_in temp_client_addr;
-                    socklen_t temp_client_addr_len = sizeof(temp_client_addr);
-                    int temp_client_fd = accept(server_fd, (struct sockaddr *)&temp_client_addr, &temp_client_addr_len);
-                    if (temp_client_fd != -1) {
-                        char temp_client_ip[INET_ADDRSTRLEN];
-                        inet_ntop(AF_INET, &temp_client_addr.sin_addr, temp_client_ip, sizeof(temp_client_ip));
-                        int temp_client_port = ntohs(temp_client_addr.sin_port);
-
-                        printf("Connection from %s:%d rejected. Maximum clients reached.\n", temp_client_ip, temp_client_port);
-                        
-                        close(temp_client_fd);
-                    }
-                }
             }
-
-            // Проверка активности каждого соединения
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (clients[i] > 0 && FD_ISSET(clients[i], &fds)) {
-                char buffer[1024] = {0};                   
-                ssize_t valread = read(clients[i], buffer, sizeof(buffer));
-                
-                char client_ip[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &client_addrs[i].sin_addr, client_ip, sizeof(client_ip));
-                int client_port = ntohs(client_addrs[i].sin_port);
-
-                    if (valread == -1) {
-                        perror("Recv failed");
-                    } else if (valread == 0) {
-                        printf("Connection closed by client %s:%d\n", client_ip, client_port);
-                        close(clients[i]);
-                        clients[i] = 0;
-                    } else if (valread > 0) {
-                        printf("Received data from client %s:%d: %s", client_ip, client_port, buffer);
-                    }
-                }
-            }
+            ++it;
         }
     }
-
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] > 0) {
-            close(clients[i]);
-        }
-    }
-
-    close(server_fd);
 
     return 0;
 }
