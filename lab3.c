@@ -1,84 +1,61 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/version.h>
+#include <linux/init.h>
+#include <linux/printk.h>
 #include <linux/proc_fs.h>
-#include <linux/uaccess.h>
-#include <linux/timekeeping.h>
 #include <linux/time.h>
 
-#define PROCFS_NAME "tsu"
+MODULE_DESCRIPTION("Tsu lab");
+MODULE_AUTHOR("x5113nc3x");
+MODULE_LICENSE("GPL");
+
+#define procfs_name "tsu"
 static struct proc_dir_entry *our_proc_file = NULL;
+static time64_t last_view_time;
 
-static int days_until_deadline(void) {
-    struct timespec64 now;
-    struct tm tm_now, tm_deadline;
-    long seconds_until_deadline;
 
-    ktime_get_real_ts64(&now);
+static ssize_t procfile_read(
+  struct file *file_pointer, char __user *buffer,
+  size_t buffer_length, loff_t *offset
+) {
+  time64_t now = ktime_get_real_seconds();
+  if (now - last_view_time <= 20) {
+    pr_info("procfile don't work");
+    return 0;
+  }
+  last_view_time = now;
 
-    time64_to_tm(now.tv_sec, 0, &tm_now);
+  char msg[] = "Hello\n";
+  size_t msg_len = strlen(msg);
+  copy_to_user(buffer, msg, msg_len);
+  pr_info("procfile read(%lld): %s\n", now, file_pointer->f_path.dentry->d_name.name);
+  return msg_len;
+} 
 
-    tm_deadline = (struct tm){0}; 
-    tm_deadline.tm_year = tm_now.tm_year + 1; 
-    tm_deadline.tm_mon = 0; 
-    tm_deadline.tm_mday = 1; 
-
-    seconds_until_deadline = mktime64(tm_deadline.tm_year + 1900, tm_deadline.tm_mon + 1, tm_deadline.tm_mday,
-                                      tm_deadline.tm_hour, tm_deadline.tm_min, tm_deadline.tm_sec) - now.tv_sec;
-
-    return seconds_until_deadline / (24 * 60 * 60);
-}
-
-static ssize_t procfile_read(struct file *file, char __user *buffer, size_t count, loff_t *offset)
-{
-    int ret = 0;
-    char s[50];
-    size_t len;
-
-    int days = days_until_deadline();
-    len = snprintf(s, sizeof(s), "Days until Deadline: %d\n", days);
-
-    if (*offset >= len) {
-        return 0;
-    }
-
-    if (count > len - *offset) {
-        count = len - *offset;
-    }
-
-    ret = copy_to_user(buffer, s + *offset, count);
-    if (ret == 0) {
-        *offset += count;
-        ret = count;
-    }
-
-    pr_info("procfile_read %s successfully\n", PROCFS_NAME);
-    return ret;
-}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
 static const struct proc_ops proc_file_fops = {
-    .proc_read = procfile_read,
+  .proc_read = procfile_read,
 };
+#else
+static const struct file_operations proc_file_fops = {
+  .read = procfile_read,
+};
+#endif
 
-static int __init tsulab_init(void)
+int init_module(void)
 {
-    our_proc_file = proc_create(PROCFS_NAME, 0644, NULL, &proc_file_fops);
+    pr_info("Welcome to the Tomsk State University\n");
+    last_view_time = ktime_get_real_seconds() - 30;
+    our_proc_file = proc_create(
+      procfs_name, 0644, NULL, &proc_file_fops);
 
-    if (our_proc_file == NULL) {
-        pr_err("Failed to create proc file\n");
-        return -ENOMEM;
-    }
-
-    pr_info("Welcome to Tomsk State University\n");
     return 0;
 }
 
-static void __exit tsulab_exit(void)
+
+void cleanup_module(void)
 {
     proc_remove(our_proc_file);
     pr_info("Tomsk State University forever!\n");
 }
-
-module_init(tsulab_init);
-module_exit(tsulab_exit);
-
-MODULE_LICENSE("GPL");
