@@ -12,13 +12,9 @@ MODULE_LICENSE("GPL");
 static struct proc_dir_entry *our_proc_file = NULL;
 static time64_t last_view_time;
 
-
-static ssize_t procfile_read(
-  struct file *file_pointer, char __user *buffer,
-  size_t buffer_length, loff_t *offset
-) {
+static ssize_t procfile_read(struct file *file_pointer, char __user *buffer, size_t buffer_length, loff_t *offset) {
   time64_t now = ktime_get_real_seconds();
-  if (now - last_view_time <= 20) {
+  if (now - last_view_time <= 10) {
     pr_info("procfile don't work");
     return 0;
   }
@@ -31,6 +27,7 @@ static ssize_t procfile_read(
   return msg_len;
 } 
 
+//Проверка версии ядра
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
 static const struct proc_ops proc_file_fops = {
   .proc_read = procfile_read,
@@ -41,17 +38,17 @@ static const struct file_operations proc_file_fops = {
 };
 #endif
 
-int init_module(void)
-{
+//Инициализация модуля
+int init_module(void){
     pr_info("Welcome to the Tomsk State University\n");
-    last_view_time = ktime_get_real_seconds() - 30;
+    last_view_time = ktime_get_real_seconds();
     our_proc_file = proc_create(PROCFS_NAME, 0644, NULL, &proc_file_fops);
 
     return 0;
 }
 
-void cleanup_module(void)
-{
+//Завершение работы модуля
+void cleanup_module(void){
     proc_remove(our_proc_file);
     pr_info("Tomsk State University forever!\n");
 }
