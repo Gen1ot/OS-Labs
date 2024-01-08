@@ -6,11 +6,9 @@
 #include <linux/proc_fs.h>
 #include <linux/time.h>
 
-MODULE_DESCRIPTION("Tsu lab");
-MODULE_AUTHOR("x5113nc3x");
 MODULE_LICENSE("GPL");
 
-#define procfs_name "tsu"
+#define PROCFS_NAME "tsu"
 static struct proc_dir_entry *our_proc_file = NULL;
 static time64_t last_view_time;
 
@@ -47,8 +45,7 @@ int init_module(void)
 {
     pr_info("Welcome to the Tomsk State University\n");
     last_view_time = ktime_get_real_seconds() - 30;
-    our_proc_file = proc_create(
-      procfs_name, 0644, NULL, &proc_file_fops);
+    our_proc_file = proc_create(PROCFS_NAME, 0644, NULL, &proc_file_fops);
 
     return 0;
 }
