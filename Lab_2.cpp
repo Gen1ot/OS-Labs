@@ -18,7 +18,7 @@ struct Client {
 //Объявление обработчика сигнала
 volatile sig_atomic_t wasSigHup = 0;
 
-void handleSignal(int sig) {
+void sigHupHandler(int sig) {
     wasSigHup = 1;
 }
 
@@ -26,7 +26,7 @@ void setupSignalHandler(sigset_t *originalMask) {
     //Регистрация обработчика сигнала
     struct sigaction sa;
     sigaction(SIGHUP, nullptr, &sa);
-    sa.sa_handler = handleSignal;
+    sa.sa_handler = sigHupHandler;
     sa.sa_flags |= SA_RESTART;
     sigaction(SIGHUP, &sa, nullptr);
 
