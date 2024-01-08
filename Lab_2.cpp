@@ -25,10 +25,10 @@ void sigHupHandler(int sig) {
 void setupSignalHandler(sigset_t *originalMask) {
     //Регистрация обработчика сигнала
     struct sigaction sa;
-    sigaction(SIGHUP, nullptr, &sa);
+    sigaction(SIGHUP, NULL, &sa);
     sa.sa_handler = sigHupHandler;
     sa.sa_flags |= SA_RESTART;
-    sigaction(SIGHUP, &sa, nullptr);
+    sigaction(SIGHUP, &sa, NULL);
 
     //Блокировка сигнала
     sigset_t blockedMask;
@@ -95,9 +95,11 @@ int main() {
             }
         }
 
-        if (pselect(maxFd + 1, &fds, nullptr, nullptr, nullptr, &origSigMask) < 0 && errno != EINTR) {
-            perror("pselect failed");
-            return EXIT_FAILURE;
+        if (pselect(maxFd + 1, &fds, NULL, NULL, NULL, &origSigMask) < 0) {
+            if (errno != EINTR){
+                perror("pselect failed");
+                return EXIT_FAILURE;
+            }
         }
 
         if (FD_ISSET(sockfd, &fds) && clients.size() < 3) {
