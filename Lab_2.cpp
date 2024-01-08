@@ -15,19 +15,22 @@ struct Client {
     sockaddr_in addr;
 };
 
-volatile sig_atomic_t signalReceived = 0;
+//Объявление обработчика сигнала
+volatile sig_atomic_t wasSigHup = 0;
 
 void handleSignal(int sig) {
-    signalReceived = 1;
+    wasSigHup = 1;
 }
 
 void setupSignalHandler(sigset_t *originalMask) {
+    //Регистрация обработчика сигнала
     struct sigaction sa;
     sigaction(SIGHUP, nullptr, &sa);
     sa.sa_handler = handleSignal;
     sa.sa_flags |= SA_RESTART;
     sigaction(SIGHUP, &sa, nullptr);
 
+    //Блокировка сигнала
     sigset_t blockedMask;
     sigemptyset(&blockedMask);
     sigaddset(&blockedMask, SIGHUP);
@@ -71,8 +74,8 @@ int main() {
     setupSignalHandler(&origSigMask);
 
     while (true) {
-        if (signalReceived) {
-            signalReceived = 0;
+        if (wasSigHup) {
+            wasSigHup = 0;
             cout << "Connected Clients: ";
             for (const auto &client : clients) {
                 cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] ";
