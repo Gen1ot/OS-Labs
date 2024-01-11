@@ -11,8 +11,8 @@
 using namespace std;
 
 struct Client {
-    int connfd;
-    sockaddr_in addr;
+    int connfd;   
+    sockaddr_in addr; 
 };
 
 //Объявление обработчика сигнала
@@ -37,9 +37,10 @@ void setupSignalHandler(sigset_t *originalMask) {
     sigprocmask(SIG_BLOCK, &blockedMask, originalMask);
 }
 
+//создаёт сервер на указанном порту
 int createServer(int port) {
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
+    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket == -1) {
         perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
@@ -50,21 +51,21 @@ int createServer(int port) {
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     servaddr.sin_port = htons(port);
 
-    if (bind(sockfd, reinterpret_cast<sockaddr*>(&servaddr), sizeof(servaddr)) != 0) {
+    if (bind(serverSocket, reinterpret_cast<sockaddr*>(&servaddr), sizeof(servaddr)) != 0) {
         perror("Socket bind failed");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(sockfd, 5) != 0) {
+    if (listen(serverSocket, 5) != 0) {
         perror("Listen failed");
         exit(EXIT_FAILURE);
     }
 
-    return sockfd;
+    return serverSocket;
 }
 
 int main() {
-    int sockfd = createServer(5005);
+    int serverSocket = createServer(5005);
     cout << "Server is listening...\n";
 
     vector<Client> clients;
@@ -85,8 +86,8 @@ int main() {
 
         fd_set fds;
         FD_ZERO(&fds);
-        FD_SET(sockfd, &fds);
-        int maxFd = sockfd;
+        FD_SET(serverSocket, &fds);
+        int maxFd = serverSocket;
 
         for (const auto &client : clients) {
             FD_SET(client.connfd, &fds);
@@ -102,11 +103,11 @@ int main() {
             }
         }
 
-        if (FD_ISSET(sockfd, &fds) && clients.size() < 3) {
+        if (FD_ISSET(serverSocket, &fds) && clients.size() < 3) {
             clients.emplace_back();
             auto &client = clients.back();
             socklen_t len = sizeof(client.addr);
-            client.connfd = accept(sockfd, reinterpret_cast<sockaddr*>(&client.addr), &len);
+            client.connfd = accept(serverSocket, reinterpret_cast<sockaddr*>(&client.addr), &len);
             if (client.connfd >= 0) {
                 cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] Connected!\n";
             } else {
