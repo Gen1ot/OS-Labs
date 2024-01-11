@@ -84,26 +84,26 @@ int main() {
             cout << "\n";
         }
 
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(serverSocket, &fds);
+        fd_set file_descriptors;
+        FD_ZERO(&file_descriptors);
+        FD_SET(serverSocket, &file_descriptors);
         int maxFd = serverSocket;
 
         for (const auto &client : clients) {
-            FD_SET(client.connfd, &fds);
+            FD_SET(client.connfd, &file_descriptors);
             if (client.connfd > maxFd) {
                 maxFd = client.connfd;
             }
         }
 
-        if (pselect(maxFd + 1, &fds, NULL, NULL, NULL, &origSigMask) < 0) {
+        if (pselect(maxFd + 1, &file_descriptors, NULL, NULL, NULL, &origSigMask) < 0) {
             if (errno != EINTR){
                 perror("pselect failed");
                 return EXIT_FAILURE;
             }
         }
 
-        if (FD_ISSET(serverSocket, &fds) && clients.size() < 3) {
+        if (FD_ISSET(serverSocket, &file_descriptors) && clients.size() < 5) {
             clients.emplace_back();
             auto &client = clients.back();
             socklen_t len = sizeof(client.addr);
@@ -116,9 +116,9 @@ int main() {
             }
         }
 
-        for (auto it = clients.begin(); it != clients.end(); ) {
-            auto &client = *it;
-            if (FD_ISSET(client.connfd, &fds)) {
+        for (auto i = clients.begin(); i != clients.end(); ) {
+            auto &client = *i;
+            if (FD_ISSET(client.connfd, &file_descriptors)) {
                 int readLen = read(client.connfd, buffer, sizeof(buffer) - 1);
                 if (readLen > 0) {
                     buffer[readLen - 1] = 0;
@@ -126,11 +126,11 @@ int main() {
                 } else {
                     close(client.connfd);
                     cout << "[" << inet_ntoa(client.addr.sin_addr) << ":" << htons(client.addr.sin_port) << "] Connection closed\n";
-                    it = clients.erase(it);
+                    i = clients.erase(i);
                     continue;
                 }
             }
-            ++it;
+            i++;
         }
     }
 
