@@ -3,7 +3,7 @@
 #include <linux/printk.h> 
  
 MODULE_DESCRIPTION("tsulab"); 
-MODULE_AUTHOR("linanung"); 
+MODULE_AUTHOR("lina"); 
 MODULE_LICENSE("GPL"); 
  
 int init_module(void){   
