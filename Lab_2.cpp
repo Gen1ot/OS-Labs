@@ -65,7 +65,7 @@ int createServer(int port) {
 }
 
 int main() {
-    int serverSocket = createServer(5005);
+    int serverSocket = createServer(3000);
     cout << "Server is listening...\n";
 
     vector<Client> clients;
